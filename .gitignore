@@ -132,5 +132,4 @@ dmypy.json
 *.code-workspace
 
 # Local folders
-images/
-post-process/
+process/
