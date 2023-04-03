@@ -130,3 +130,7 @@ dmypy.json
 
 # VSCode
 *.code-workspace
+
+# Local folders
+images/
+post-process/
