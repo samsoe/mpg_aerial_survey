@@ -33,13 +33,14 @@
 - Check battery charge level on Base unit
 - Check battery charge level on Rover unit
 
-## GCP Placement
-### Setup RS2 Base
+## Field Operations
+### GCP Placement
+#### Setup RS2 Base
 - Turn on Base
 - Connect to Wifi/Hotspot
 - Connect to CORS station
 
-## Flight Operations
+### Aerial Survey
 - Assess obstacles in flight environment
 
 ## Post-flight Data Management
