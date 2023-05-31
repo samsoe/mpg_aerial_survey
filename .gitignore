@@ -133,3 +133,6 @@ dmypy.json
 
 # Local folders
 process/
+
+# Mac files
+.DS_Store
