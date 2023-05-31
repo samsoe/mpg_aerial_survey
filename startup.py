@@ -14,3 +14,5 @@ file.close()
 print("File 'hello_world.txt' created successfully.")
 
 command = "bash /usr/local/bin/scripts/mpg_aerial_survey/startup.sh"  # Replace with your desired bash command
+
+return_code = os.system(command)
