@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 # Open the file in write mode
-file = open("/usr/local/bin/dataset/hello_world.txt", "w")
+file = open("/usr/local/bin/datasets/hello_world.txt", "w")
 
 # Write the text into the file
 file.write("Hello, world!")
