@@ -129,19 +129,19 @@ def process_images(batch, output_bucket, ortho_res, suffix):
     # Cleanup: Remove temporary directory
     shutil.rmtree(temp_dir)
 
-#items specified by user on startup
-survey_res = 1.37
-
 drainage_buffer_url = 'https://storage.googleapis.com/mpg-aerial-survey/supporting_data/drainage_buffer.kml'
-flight_plan_url = 'https://storage.googleapis.com/mpg-aerial-survey/supporting_data/testing/june_full_spurge_flightplan.kml'
-photo_manifest_url = 'https://storage.googleapis.com/mpg-aerial-survey/surveys/230515_dyetest_50m/data_collection/m3m/manifest.csv'
-output_bucket = 'mpg-aerial-survey/supporting_data/testing'
-#gcp_editor_url = ...
-
-compute_array_sz = 10
 
 #items inferred from for loop
 array_idx = 2
+
+
+#items specified by user on startup
+survey_res = 1.37
+compute_array_sz = 10
+flight_plan_url = 'https://storage.googleapis.com/mpg-aerial-survey/supporting_data/testing/june_full_spurge_flightplan.kml'
+photo_manifest_url = 'https://storage.googleapis.com/mpg-aerial-survey/surveys/230515_dyetest_50m/data_collection/m3m/manifest.csv'
+output_bucket = 'mpg-aerial-survey/supporting_data/testing'
+gcp_editor_url = None
 
 drainage_buffer = os.path.basename(drainage_buffer_url)
 flight_plan = os.path.basename(flight_plan_url)
