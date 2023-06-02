@@ -1,6 +1,6 @@
 import subprocess
 
-packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona', 'json']
+packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona']
 
 for p in packages:
   subprocess.check_call(['pip', 'install', p])
@@ -130,13 +130,23 @@ def process_images(batch, output_bucket, ortho_res, suffix):
     # Cleanup: Remove temporary directory
     shutil.rmtree(temp_dir)
 
-drainage_buffer_url = 'https://storage.googleapis.com/mpg-aerial-survey/supporting_data/drainage_buffer.kml'
+def get_metadata(attribute):
+  curl_command = ["curl", "-H", "Metadata-Flavor: Google", f"http://metadata/computeMetadata/v1/instance/{attribute}"]
+  result = subprocess.run(curl_command, capture_output=True, text=True)
+  return result.stdout.strip()
 
+temp_work = tempfile.mkdtemp()
+os.chdir(temp_work)
 
 #later these will be updated to gcloud metadata queries:
 array_idx = 2
 config_url = 'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/main/config_files/init_testing_config_file.json'
+
+#array_idx = int(get_metadata('array_idx')) #dynamic production version
+#config_url = get_metadata('config_url')#dynamic production version
+
 config_file = os.path.basename(config_url)
+download_file(config_url, config_file)
 
 with open(config_file, 'r') as json_file:
     # Load the JSON data into a Python object
@@ -148,6 +158,7 @@ flight_plan_url = config['flight_plan_url']
 photo_manifest_url = config['photo_manifest_url']
 output_bucket =  config['output_bucket']
 gcp_editor_url = config['gcp_editor_url']
+drainage_buffer_url = 'https://storage.googleapis.com/mpg-aerial-survey/supporting_data/drainage_buffer.kml'
 
 drainage_buffer = os.path.basename(drainage_buffer_url)
 flight_plan = os.path.basename(flight_plan_url)
@@ -199,11 +210,13 @@ while len(grid_cells) > compute_array_sz:
   grid_side += 10
 
 grid_gdf = gpd.GeoDataFrame(grid_cells, columns=['geometry'], crs='EPSG:26911')
-focal_poly = grid_gdf.to_crs(epsg=26911).loc[[array_idx]]
-out_poly = expand_to_gcps(focal_poly, gcp_gdf_utm, step_sz=30)
+base_poly = grid_gdf.to_crs(epsg=26911).loc[[array_idx]]
+buffered_poly = expand_to_gcps(base_poly, gcp_gdf_utm, step_sz=30)
 
-manifest_df = pd.read_csv('manifest.csv')
+manifest_df = pd.read_csv(photo_manifest)
 
-target_photos = filter_manifest(manifest_df, focal_poly)
+target_photos = filter_manifest(manifest_df, buffered_poly)
 
 process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, suffix=array_idx)
+
+shutil.rmtree(temp_work)
