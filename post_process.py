@@ -1,6 +1,6 @@
 import subprocess
 
-packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona']
+packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona', 'json']
 
 for p in packages:
   subprocess.check_call(['pip', 'install', p])
@@ -17,6 +17,7 @@ from shapely.geometry import Point, Polygon, box, mapping
 from pyproj import CRS
 import fiona
 import requests
+import json
 
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 
@@ -131,25 +132,26 @@ def process_images(batch, output_bucket, ortho_res, suffix):
 
 drainage_buffer_url = 'https://storage.googleapis.com/mpg-aerial-survey/supporting_data/drainage_buffer.kml'
 
-#items inferred from for loop
+
+#later these will be updated to gcloud metadata queries:
 array_idx = 2
+config_url = 'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/main/config_files/init_testing_config_file.json'
+config_file = os.path.basename(config_url)
 
+with open(config_file, 'r') as json_file:
+    # Load the JSON data into a Python object
+    config = json.load(json_file)
 
-#items specified by user on startup
-survey_res = 1.37
-compute_array_sz = 10
-flight_plan_url = 'https://storage.googleapis.com/mpg-aerial-survey/supporting_data/testing/june_full_spurge_flightplan.kml'
-photo_manifest_url = 'https://storage.googleapis.com/mpg-aerial-survey/surveys/230515_dyetest_50m/data_collection/m3m/manifest.csv'
-output_bucket = 'mpg-aerial-survey/supporting_data/testing'
-gcp_editor_url = None
+survey_res = config['survey_res']
+compute_array_sz = config['compute_array_sz']
+flight_plan_url = config['flight_plan_url']
+photo_manifest_url = config['photo_manifest_url']
+output_bucket =  config['output_bucket']
+gcp_editor_url = config['gcp_editor_url']
 
 drainage_buffer = os.path.basename(drainage_buffer_url)
 flight_plan = os.path.basename(flight_plan_url)
 photo_manifest = os.path.basename(photo_manifest_url)
-
-# !wget -O $drainage_buffer $drainage_buffer_url
-# !wget -O $flight_plan $flight_plan_url
-# !wget -O $photo_manifest $photo_manifest_url
 
 download_file(drainage_buffer_url, drainage_buffer)
 download_file(flight_plan_url, flight_plan)
