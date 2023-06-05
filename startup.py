@@ -2,7 +2,7 @@
 import os
 
 # Update git repo
-os.system("cd /usr/local/bin/scripts/mpg_aerial_survey/ && git pull")
+os.system("cd /usr/local/bin/scripts/mpg_aerial_survey/ && sudo git pull")
 
 
 # Open the file in write mode
