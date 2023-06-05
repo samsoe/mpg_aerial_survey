@@ -1,6 +1,6 @@
 import subprocess
 
-packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona']
+packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona','rasterio']
 
 for p in packages:
   subprocess.check_call(['pip', 'install', p])
@@ -18,6 +18,8 @@ from pyproj import CRS
 import fiona
 import requests
 import json
+import rasterio
+from rasterio.mask import mask
 
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 
@@ -29,6 +31,11 @@ def download_file(url, save_path):
         print(f"File downloaded successfully and saved as '{save_path}'.")
     else:
         print(f"Error occurred while downloading file from '{url}'.")
+        
+def get_metadata(attribute):
+  curl_command = ["curl", "-H", "Metadata-Flavor: Google", f"http://metadata/computeMetadata/v1/instance/{attribute}"]
+  result = subprocess.run(curl_command, capture_output=True, text=True)
+  return result.stdout.strip()
 
 def gridify(gdf, side_length: float) -> list:
     # Check if the CRS matches the projected CRS
@@ -87,7 +94,30 @@ def filter_manifest(manifest, focal_poly, address_type='url'):
             keepers.append(row[address_type])
   return keepers
 
-def process_images(batch, output_bucket, ortho_res, suffix):
+def mask_to_gdf(gdf, raster_path, output_path):
+    # Read the raster file
+    src = rasterio.open(raster_path)
+
+    # Reproject the GeoDataFrame to match the projection of the raster, if needed
+    gdf = gdf.to_crs(src.crs)
+
+    # Mask the raster using the GeoDataFrame's geometry
+    out_image, out_transform = mask(src, gdf.geometry, crop=True)
+
+    # Update the metadata of the cropped raster
+    out_meta = src.meta.copy()
+    out_meta.update({
+        "driver": "GTiff",
+        "height": out_image.shape[1],
+        "width": out_image.shape[2],
+        "transform": out_transform
+    })
+
+    # Save the cropped raster to a new file
+    with rasterio.open(output_path, 'w', **out_meta) as dst:
+        dst.write(out_image)
+
+def process_images(batch, output_bucket, ortho_res, region_mask, suffix):
    # Create a temporary directory
     temp_dir = tempfile.mkdtemp()
 
@@ -119,7 +149,8 @@ def process_images(batch, output_bucket, ortho_res, suffix):
     report = os.path.join(temp_dir,'odm_report/report.pdf')
     ortho_new = ortho.replace('.tif',f'_{suffix}.tif')
     report_new = report.replace('.pdf',f'_{suffix}.pdf')
-    os.rename(ortho, ortho_new)
+    
+    mask_to_gdf(region_mask, ortho, ortho_new)
     os.rename(report, report_new)
 
     focal_files = [ortho_new, report_new]
@@ -130,10 +161,17 @@ def process_images(batch, output_bucket, ortho_res, suffix):
     # Cleanup: Remove temporary directory
     shutil.rmtree(temp_dir)
 
-def get_metadata(attribute):
-  curl_command = ["curl", "-H", "Metadata-Flavor: Google", f"http://metadata/computeMetadata/v1/instance/{attribute}"]
-  result = subprocess.run(curl_command, capture_output=True, text=True)
-  return result.stdout.strip()
+def stop_instance(instance_name):
+    # Construct the gsutil command to stop the instance
+    gsutil_command = f'gsutil compute instances stop {instance_name}'
+
+    try:
+        # Execute the gsutil command using subprocess
+        subprocess.run(gsutil_command, shell=True, check=True)
+        print(f'Successfully stopped instance: {instance_name}')
+    except subprocess.CalledProcessError as e:
+        print(f'Error stopping instance: {instance_name}')
+        print(e)
 
 temp_work = tempfile.mkdtemp()
 os.chdir(temp_work)
@@ -141,6 +179,7 @@ os.chdir(temp_work)
 #later these will be updated to gcloud metadata queries:
 array_idx = 2
 config_url = 'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/main/config_files/init_testing_config_file.json'
+instance_name = f'odm-array-{array_idx}' #name of instance inferred from index
 
 #array_idx = int(get_metadata('array_idx')) #dynamic production version
 #config_url = get_metadata('config_url')#dynamic production version
@@ -217,6 +256,8 @@ manifest_df = pd.read_csv(photo_manifest)
 
 target_photos = filter_manifest(manifest_df, buffered_poly)
 
-process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, suffix=array_idx)
+process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, region_mask=base_poly ,suffix=array_idx)
 
 shutil.rmtree(temp_work)
+
+#stop_instance(instance_name)
