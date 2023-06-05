@@ -1,6 +1,10 @@
 #!/usr/bin/python
 import os
 
+# Update git repo
+os.system("cd /usr/local/bin/scripts/mpg_aerial_survey/ && sudo git pull > /tmp/git_testing.log")
+
+
 # Open the file in write mode
 file = open("/usr/local/bin/datasets/hello_world.txt", "w")
 
