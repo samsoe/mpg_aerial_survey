@@ -296,7 +296,7 @@ os.chdir(temp_work)
 branch = 'voronoi'
 survey = '230601_spurgepoly'
 array_idx = 0
-config_url = f'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/{branch}/{survey}/config_file.json'
+config_url = f'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/{branch}/surveys/{survey}/config_file.json'
 instance_name = f'odm-array-{array_idx}' #name of instance inferred from index
 
 #array_idx = int(get_metadata('array_idx')) #dynamic production version
