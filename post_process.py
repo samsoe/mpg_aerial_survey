@@ -20,6 +20,7 @@ import requests
 import json
 import rasterio
 from rasterio.mask import mask
+from rasterio.enums import Resampling
 from scipy.spatial import Voronoi
 
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
@@ -38,7 +39,7 @@ def get_metadata(attribute):
   result = subprocess.run(curl_command, capture_output=True, text=True)
   return result.stdout.strip()
 
-def expand_to_gcps(focal_poly, gcps, gcp_cutoff=5, step_sz=30, base_buffer=100):
+def expand_to_gcps(focal_poly, gcps, gcp_cutoff=5, step_sz=30, base_buffer=50):
     focal_poly = focal_poly.buffer(base_buffer)
     count = sum(gcps.within(focal_poly.geometry.iloc[0]))
     
@@ -92,12 +93,16 @@ def mask_to_gdf(gdf, raster_path, output_path):
         "driver": "GTiff",
         "height": out_image.shape[1],
         "width": out_image.shape[2],
-        "transform": out_transform
+        "transform": out_transform,
+        "dtype": out_image.dtype,
+        "compress": src.compression.value if src.compression else "none"
     })
 
     # Save the cropped raster to a new file
-    with rasterio.open(output_path, 'w', dtype=src.dtypes[0], compress=src.compression,**out_meta) as dst:
-        dst.write(out_image)
+    with rasterio.open(output_path, 'w', **out_meta) as dst:
+        # Use the original raster's block size and resampling method for better compression
+        dst.write(out_image, indexes=src.indexes, block_size=src.block_shapes,
+                  resampling=Resampling[src.resampling])
 
 def process_images(batch, output_bucket, ortho_res, cutline, suffix):
    # Create a temporary directory

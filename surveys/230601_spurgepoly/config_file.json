@@ -1,6 +1,6 @@
 {
     "survey_res": 1.37,
-    "compute_array_sz": 20,
+    "compute_array_sz": 50,
     "flight_plan_url": "https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/voronoi/surveys/230601_spurgepoly/flightplan.kml",
     "photo_manifest_url": "https://storage.googleapis.com/mpg-aerial-survey/surveys/230601_spurgepoly/data_collection/m3m/manifest.csv",
     "output_bucket": "mpg-aerial-survey/supporting_data/testing",
