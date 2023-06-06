@@ -37,25 +37,6 @@ def get_metadata(attribute):
   result = subprocess.run(curl_command, capture_output=True, text=True)
   return result.stdout.strip()
 
-def gridify(gdf, side_length: float) -> list:
-    # Check if the CRS matches the projected CRS
-    if gdf.crs != 'epsg:26911':
-        print(f"Warning: CRS does not match 'epsg:26911', it is: {gdf.crs}")
-        
-    # This assumes that the DataFrame has only one Polygon, else it takes the first one
-    poly = gdf.geometry[0]
-
-    minx, miny, maxx, maxy = poly.bounds
-    grid_cells = []
-
-    for x in np.arange(minx, maxx, side_length):
-        for y in np.arange(miny, maxy, side_length):
-            cell_poly = box(x, y, x+side_length, y+side_length)
-            if cell_poly.intersects(poly):
-                grid_cells.append(cell_poly)
-    
-    return grid_cells
-
 def expand_to_gcps(focal_poly, gcps, gcp_cutoff=5, step_sz=30, base_buffer=50):
     focal_poly = focal_poly.buffer(base_buffer)
     count = sum(gcps.within(focal_poly.geometry.iloc[0]))
@@ -114,10 +95,10 @@ def mask_to_gdf(gdf, raster_path, output_path):
     })
 
     # Save the cropped raster to a new file
-    with rasterio.open(output_path, 'w', **out_meta) as dst:
+    with rasterio.open(output_path, 'w', dtype=src.dtypes[0], compress=src.compression,**out_meta) as dst:
         dst.write(out_image)
 
-def process_images(batch, output_bucket, ortho_res, region_mask, suffix):
+def process_images(batch, output_bucket, ortho_res, cutline, suffix):
    # Create a temporary directory
     temp_dir = tempfile.mkdtemp()
 
@@ -150,7 +131,7 @@ def process_images(batch, output_bucket, ortho_res, region_mask, suffix):
     ortho_new = ortho.replace('.tif',f'_{suffix}.tif')
     report_new = report.replace('.pdf',f'_{suffix}.pdf')
     
-    mask_to_gdf(region_mask, ortho, ortho_new)
+    mask_to_gdf(cutline, ortho, ortho_new)
     os.rename(report, report_new)
 
     focal_files = [ortho_new, report_new]
@@ -172,6 +153,140 @@ def stop_instance(instance_name):
     except subprocess.CalledProcessError as e:
         print(f'Error stopping instance: {instance_name}')
         print(e)
+
+def voronoi_finite_polygons_2d(vor, radius=None):
+    """
+    Reconstruct infinite voronoi regions in a 2D diagram to finite
+    regions.
+
+    Source: https://gist.github.com/pv/8036995
+    """
+
+    if vor.points.shape[1] != 2:
+        raise ValueError("Requires 2D input")
+
+    new_regions = []
+    new_vertices = vor.vertices.tolist()
+
+    center = vor.points.mean(axis=0)
+    if radius is None:
+        radius = vor.points.ptp().max()*2
+
+    # Construct a map containing all ridges for a given point
+    all_ridges = {}
+    for (p1, p2), (v1, v2) in zip(vor.ridge_points, vor.ridge_vertices):
+        all_ridges.setdefault(p1, []).append((p2, v1, v2))
+        all_ridges.setdefault(p2, []).append((p1, v1, v2))
+
+    # Reconstruct infinite regions
+    for p1, region in enumerate(vor.point_region):
+        vertices = vor.regions[region]
+
+        if all(v >= 0 for v in vertices):
+            # finite region
+            new_regions.append(vertices)
+            continue
+
+        # reconstruct a non-finite region
+        ridges = all_ridges[p1]
+        new_region = [v for v in vertices if v >= 0]
+
+        for p2, v1, v2 in ridges:
+            if v2 < 0:
+                v1, v2 = v2, v1
+            if v1 >= 0:
+                # finite ridge: already in the region
+                continue
+
+            # Compute the missing endpoint of an infinite ridge
+
+            t = vor.points[p2] - vor.points[p1] # tangent
+            t /= np.linalg.norm(t)
+            n = np.array([-t[1], t[0]])  # normal
+
+            midpoint = vor.points[[p1, p2]].mean(axis=0)
+            direction = np.sign(np.dot(midpoint - center, n)) * n
+            far_point = vor.vertices[v2] + direction * radius
+
+            new_region.append(len(new_vertices))
+            new_vertices.append(far_point.tolist())
+
+        # sort region counterclockwise
+        vs = np.asarray([new_vertices[v] for v in new_region])
+        c = vs.mean(axis=0)
+        angles = np.arctan2(vs[:,1] - c[1], vs[:,0] - c[0])
+        new_region = np.array(new_region)[np.argsort(angles)]
+
+        # finish
+        new_regions.append(new_region.tolist())
+
+    return new_regions, np.asarray(new_vertices)
+
+def generate_points(poly, num, seed=None):
+    np.random.seed(seed)
+    points = []
+    minx, miny, maxx, maxy = poly.bounds
+    while len(points) < num:
+        random_point = Point(np.random.uniform(minx, maxx), np.random.uniform(miny, maxy))
+        if (random_point.within(poly)):
+            points.append(random_point)
+    return [point.coords[0] for point in points]
+
+def calculate_voronoi_complexity(poly, points):
+    # compute Voronoi tesselation
+    vor = Voronoi(points)
+    
+    # create finite Voronoi polygons
+    regions, vertices = voronoi_finite_polygons_2d(vor)
+    
+    # construct the polygons and intersect with the original one
+    voronoi_polygons = [poly.intersection(Polygon(vertices[region])) for region in regions]
+    
+    # return only the valid ones (completely inside the original polygon)
+    valid_polygons = [p for p in voronoi_polygons if p.is_valid]
+
+    # calculate the perimeter and areas of each valid polygon
+    perimeters = [p.length for p in valid_polygons]
+    areas = [p.area for p in valid_polygons]
+    complexity = [x / y for x, y in zip(perimeters, areas)]
+    
+    return complexity, valid_polygons
+
+def optimize_voronoi_complexity(poly, num, max_iterations=1000, learning_rate=0.1, seed=None):
+    points = generate_points(poly, num, seed)
+    np.random.seed(seed)
+    mns = [] # to store complexity means at each iteration
+    
+    for i in range(max_iterations):
+        complexity, polygons = calculate_voronoi_complexity(poly, points)
+        mn = np.mean(complexity)
+        mns.append(mn) # append current std dev to the list
+
+        # randomly select a point
+        point_idx = np.random.randint(0, len(points))
+        current_point = Point(points[point_idx])
+        
+        # Compute gradients by trying small movements in each direction
+        min_mn = mn
+        min_mn_direction = None
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            new_point = Point(current_point.x + dx * learning_rate, current_point.y + dy * learning_rate)
+            new_points = points.copy()
+            new_points[point_idx] = (new_point.x, new_point.y)
+            
+            new_complexity, _ = calculate_voronoi_complexity(poly, new_points)
+            new_mn = np.mean(new_complexity)
+            
+            if new_mn < min_mn:
+                min_mn = new_mn
+                min_mn_direction = (dx, dy)
+        
+        # If we found a direction that decreases the mean complexity, move the point
+        if min_mn_direction is not None:
+            dx, dy = min_mn_direction
+            points[point_idx] = (current_point.x + dx * learning_rate, current_point.y + dy * learning_rate)
+    
+    return polygons, mns
 
 temp_work = tempfile.mkdtemp()
 os.chdir(temp_work)
@@ -238,25 +353,19 @@ for x in x_coords:
         if point.within(gcp_areas_projected_src.geometry.iloc[0]):  # only keep points within the polygon
             points.append(point)
 
-gcp_gdf_utm = gpd.GeoDataFrame(geometry=points, crs='EPSG:26911')
-gcp_gdf_latlon = gcp_gdf_utm.to_crs(crs_source)
+gcp_gdf = gpd.GeoDataFrame(geometry=points, crs='EPSG:26911')
 
-grid_side = 10
-grid_cells = [1]*int(1e9)
+parts, means = optimize_voronoi_complexity(flight_projected_src.geometry[0], compute_array_sz, 
+                                         learning_rate=30, max_iterations=1000, seed=0)
 
-while len(grid_cells) > compute_array_sz:
-  grid_cells = gridify(flight_projected_src, grid_side)
-  grid_side += 10
-
-grid_gdf = gpd.GeoDataFrame(grid_cells, columns=['geometry'], crs='EPSG:26911')
-base_poly = grid_gdf.to_crs(epsg=26911).loc[[array_idx]]
-buffered_poly = expand_to_gcps(base_poly, gcp_gdf_utm, step_sz=30)
+base_poly = gpd.GeoDataFrame(geometry=[parts[array_idx]], crs = 26911)
+buffered_poly = expand_to_gcps(base_poly, gcp_gdf, step_sz=30)
 
 manifest_df = pd.read_csv(photo_manifest)
 
 target_photos = filter_manifest(manifest_df, buffered_poly)
 
-process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, region_mask=base_poly ,suffix=array_idx)
+process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, cutline=base_poly ,suffix=array_idx)
 
 shutil.rmtree(temp_work)
 
