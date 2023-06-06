@@ -1,6 +1,6 @@
 import subprocess
 
-packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona','rasterio']
+packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona','rasterio','scipy']
 
 for p in packages:
   subprocess.check_call(['pip', 'install', p])
@@ -20,6 +20,7 @@ import requests
 import json
 import rasterio
 from rasterio.mask import mask
+from scipy.spatial import Voronoi
 
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 
@@ -37,7 +38,7 @@ def get_metadata(attribute):
   result = subprocess.run(curl_command, capture_output=True, text=True)
   return result.stdout.strip()
 
-def expand_to_gcps(focal_poly, gcps, gcp_cutoff=5, step_sz=30, base_buffer=50):
+def expand_to_gcps(focal_poly, gcps, gcp_cutoff=5, step_sz=30, base_buffer=100):
     focal_poly = focal_poly.buffer(base_buffer)
     count = sum(gcps.within(focal_poly.geometry.iloc[0]))
     
@@ -292,8 +293,10 @@ temp_work = tempfile.mkdtemp()
 os.chdir(temp_work)
 
 #later these will be updated to gcloud metadata queries:
-array_idx = 2
-config_url = 'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/main/config_files/init_testing_config_file.json'
+branch = 'voronoi'
+survey = '230601_spurgepoly'
+array_idx = 0
+config_url = f'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/{branch}/{survey}/config_file.json'
 instance_name = f'odm-array-{array_idx}' #name of instance inferred from index
 
 #array_idx = int(get_metadata('array_idx')) #dynamic production version
@@ -306,60 +309,46 @@ with open(config_file, 'r') as json_file:
     # Load the JSON data into a Python object
     config = json.load(json_file)
 
+gcp_res = str(200)
+#gcp_res = str(config['gcp_res'])
+gcp_grid_url = f'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/{branch}/gcp_kmls/upland_gcps_{gcp_res}m.kml'
+
 survey_res = config['survey_res']
 compute_array_sz = config['compute_array_sz']
 flight_plan_url = config['flight_plan_url']
 photo_manifest_url = config['photo_manifest_url']
 output_bucket =  config['output_bucket']
 gcp_editor_url = config['gcp_editor_url']
-drainage_buffer_url = 'https://storage.googleapis.com/mpg-aerial-survey/supporting_data/drainage_buffer.kml'
 
-drainage_buffer = os.path.basename(drainage_buffer_url)
+gcp_grid = os.path.basename(gcp_grid_url)
 flight_plan = os.path.basename(flight_plan_url)
 photo_manifest = os.path.basename(photo_manifest_url)
 
-download_file(drainage_buffer_url, drainage_buffer)
+download_file(gcp_grid_url, gcp_grid)
 download_file(flight_plan_url, flight_plan)
 download_file(photo_manifest_url, photo_manifest)
 
 flight_roi = load_kml(flight_plan)
-drainage_poly = load_kml(drainage_buffer)
-
-gcp_areas = flight_roi.difference(drainage_poly)
+gcps = load_kml(gcp_grid)
 
 crs_source = CRS.from_epsg(4326)
 crs_target = CRS.from_epsg(26911)
 
 # Set the source CRS of the GeoDataFrame
 flight_roi.crs = crs_source
-gcp_areas.crs = crs_source
+gcps.crs = crs_source
 
 # Reproject the GeoDataFrame to the target CRS
 flight_projected_src = flight_roi.to_crs(crs_target)
-gcp_areas_projected_src = gcp_areas.to_crs(crs_target)
+gcps_projected_src = gcps.to_crs(crs_target)
 
-minx, miny, maxx, maxy = gcp_areas_projected_src.geometry.iloc[0].bounds
-
-# Then, let's create the points
-# We are using np.arange that gives us evenly spaced values within a given interval
-x_coords = np.arange(minx, maxx, 200)
-y_coords = np.arange(miny, maxy, 200)
-
-# Next, we'll create a grid of points within this bounding box
-points = []
-for x in x_coords:
-    for y in y_coords:
-        point = Point(x, y)
-        if point.within(gcp_areas_projected_src.geometry.iloc[0]):  # only keep points within the polygon
-            points.append(point)
-
-gcp_gdf = gpd.GeoDataFrame(geometry=points, crs='EPSG:26911')
+gcps_flight = gpd.sjoin(gcps_projected_src, flight_projected_src, how='inner', op='within')
 
 parts, means = optimize_voronoi_complexity(flight_projected_src.geometry[0], compute_array_sz, 
                                          learning_rate=30, max_iterations=1000, seed=0)
 
 base_poly = gpd.GeoDataFrame(geometry=[parts[array_idx]], crs = 26911)
-buffered_poly = expand_to_gcps(base_poly, gcp_gdf, step_sz=30)
+buffered_poly = expand_to_gcps(base_poly, gcps_flight, step_sz=30)
 
 manifest_df = pd.read_csv(photo_manifest)
 
