@@ -3,7 +3,7 @@ import subprocess
 packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona','rasterio','scipy']
 
 for p in packages:
-  subprocess.check_call(['pip', 'install', p])
+  subprocess.check_call(['pip3', 'install', p])
 
 import os
 import shutil
