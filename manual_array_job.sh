@@ -1,3 +1,5 @@
+#! bin/bash
+
 url=https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/main/surveys/230601_spurgepoly/config_file.json
 idx=0
 
