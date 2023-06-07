@@ -325,7 +325,7 @@ photo_manifest_url = config['photo_manifest_url']
 output_bucket =  config['output_bucket']
 gcp_editor_url = config['gcp_editor_url']
 
-log_progress('loaded_config.txt', output_bucket)
+log_progress(f'loaded_config_{array_idx}.txt', output_bucket)
 
 gcp_grid = os.path.basename(gcp_grid_url)
 flight_plan = os.path.basename(flight_plan_url)
@@ -335,7 +335,7 @@ download_file(gcp_grid_url, gcp_grid)
 download_file(flight_plan_url, flight_plan)
 download_file(photo_manifest_url, photo_manifest)
 
-log_progress('downloaded_supporting_dat.txt', output_bucket)
+log_progress(f'downloaded_supporting_dat_{array_idx}.txt', output_bucket)
 
 flight_roi = load_kml(flight_plan)
 gcps = load_kml(gcp_grid)
@@ -356,7 +356,7 @@ gcps_flight = gpd.sjoin(gcps_projected_src, flight_projected_src, how='inner', o
 parts, means = optimize_voronoi_complexity(flight_projected_src.geometry[0], compute_array_sz, 
                                          learning_rate=30, max_iterations=1000, seed=0)
 
-log_progress('partitioned_area.txt', output_bucket)
+log_progress(f'partitioned_area_{array_idx}.txt', output_bucket)
 
 base_poly = gpd.GeoDataFrame(geometry=[parts[array_idx]], crs = 26911)
 buffered_poly = expand_to_gcps(base_poly, gcps_flight, step_sz=30)
@@ -365,10 +365,10 @@ manifest_df['geometry'] = manifest_df.apply(lambda row: Point(row['longitude'], 
 manifest_gpd = gpd.GeoDataFrame(manifest_df, geometry='geometry', crs=crs_source).to_crs(crs_target)
 target_photos = gpd.sjoin(manifest_gpd, gpd.GeoDataFrame(geometry=buffered_poly), op='within')['url']
 
-log_progress('started_post_processing.txt', output_bucket)
+log_progress(f'started_post_processing_{array_idx}.txt', output_bucket)
 process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, cutline=base_poly ,suffix=array_idx)
 
 shutil.rmtree(temp_work)
 
-log_progress('stopping.txt', output_bucket)
+log_progress(f'stopping_{array_idx}.txt', output_bucket)
 stop_instance(instance_name)
