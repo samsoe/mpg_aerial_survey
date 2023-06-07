@@ -5,6 +5,8 @@ packages = ['geopandas', 'pandas', 'numpy', 'shapely', 'pyproj', 'fiona','raster
 for p in packages:
   subprocess.check_call(['pip', 'install', p])
 
+#pip install -Uqq geopandas pandas numpy shapely pyproj fiona
+
 import os
 import shutil
 import tempfile
@@ -33,15 +35,9 @@ def download_file(url, save_path):
         print(f"Error occurred while downloading file from '{url}'.")
         
 def get_metadata(attribute):
-    curl_command = [
-        "curl",
-        "-H",
-        "Metadata-Flavor: Google",
-        f"http://metadata/computeMetadata/v1/instance/attributes/{attribute}"
-    ]
-    result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-    output = result.stdout.strip()
-    return output
+  curl_command = ["curl", "-H", "Metadata-Flavor: Google", f"http://metadata/computeMetadata/v1/instance/{attribute}"]
+  result = subprocess.run(curl_command, capture_output=True, text=True)
+  return result.stdout.strip()
 
 def expand_to_gcps(focal_poly, gcps, gcp_cutoff=5, step_sz=30, base_buffer=50):
     focal_poly = focal_poly.buffer(base_buffer)
@@ -291,14 +287,15 @@ def optimize_voronoi_complexity(poly, num, max_iterations=1000, learning_rate=0.
 temp_work = tempfile.mkdtemp()
 os.chdir(temp_work)
 
-branch = 'main'
-# survey = '230601_spurgepoly'
-# array_idx = 0
-# config_url = f'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/{branch}/surveys/{survey}/config_file.json'
-
-array_idx = int(get_metadata('array_idx')) #dynamic production version
-config_url = get_metadata('config_url')#dynamic production version
+#later these will be updated to gcloud metadata queries:
+branch = 'voronoi'
+survey = '230601_spurgepoly'
+array_idx = 0
+config_url = f'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/{branch}/surveys/{survey}/config_file.json'
 instance_name = f'odm-array-{array_idx}' #name of instance inferred from index
+
+#array_idx = int(get_metadata('array_idx')) #dynamic production version
+#config_url = get_metadata('config_url')#dynamic production version
 
 config_file = os.path.basename(config_url)
 download_file(config_url, config_file)
@@ -355,4 +352,4 @@ process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=surve
 
 shutil.rmtree(temp_work)
 
-stop_instance(instance_name)
+#stop_instance(instance_name)
