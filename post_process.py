@@ -1,7 +1,7 @@
 import subprocess
 
 subprocess.run(['pip3', 'install', '--upgrade', 'pip'], check=True)
-subprocess.run(['sudo', 'apt-get', 'install', 'gdal-bin', 'libgdal-dev', 'libspatialindex-dev'], check=True)
+subprocess.run(['sudo', 'apt-get', 'install', 'gdal-bin', 'libgdal-dev', 'libspatialindex-dev'], check=True, input=b'y\n')
 
 packages = ['cython','pyproj','geopandas','pandas','numpy','shapely','fiona','rasterio','scipy', 'rtree','pygeos']
 
