@@ -289,8 +289,8 @@ def optimize_voronoi_complexity(poly, num, max_iterations=1000, learning_rate=0.
     return polygons, mns
 
 def log_progress(file, bucket):
-    with open(file, 'w') as file:
-        file.write('done')
+    with open(file, 'w') as f:
+        f.write('done')
     copy_to_gcs(file, bucket)
 
 temp_work = tempfile.mkdtemp()
