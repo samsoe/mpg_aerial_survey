@@ -1,6 +1,6 @@
 import subprocess
 
-packages = ['cython','pyproj','geopandas','pandas','numpy','shapely','fiona','rasterio','scipy']
+packages = ['cython','pyproj','geopandas','pandas','numpy','shapely','fiona','rasterio','scipy', 'rtree','pygeos']
 
 for p in packages:
   subprocess.check_call(['pip3', 'install', p])
