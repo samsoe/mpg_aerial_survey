@@ -116,7 +116,7 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix):
 
     # Execute OpenDroneMap Docker command
     docker_command = [
-        "docker", "run", "--rm",
+        "sudo", "docker", "run", "--rm",
         "-v", "{}:/datasets/code".format(temp_dir),
         "opendronemap/odm", "--project-path", "/datasets",
         "--orthophoto-resolution", f"{ortho_res}",
