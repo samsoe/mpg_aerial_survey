@@ -68,15 +68,6 @@ def copy_to_gcs(local_file_path, bucket_name):
         print('Error occurred while copying the file to Google Cloud Storage:')
         print(e)
 
-def filter_manifest(manifest, focal_poly, address_type='url'):
-  focal_poly_ll = focal_poly.to_crs(epsg=4326)
-  keepers = []
-  for index, row in manifest.iterrows():
-    point = Point(row['longitude'], row['latitude'])
-    if point.within(focal_poly_ll.geometry.iloc[0]):  # only keep points within the polygon
-            keepers.append(row[address_type])
-  return keepers
-
 def mask_to_gdf(gdf, raster_path, output_path):
     # Read the raster file
     src = rasterio.open(raster_path)
@@ -101,8 +92,7 @@ def mask_to_gdf(gdf, raster_path, output_path):
     # Save the cropped raster to a new file
     with rasterio.open(output_path, 'w', **out_meta) as dst:
         # Use the original raster's block size and resampling method for better compression
-        dst.write(out_image, indexes=src.indexes, block_size=src.block_shapes,
-                  resampling=Resampling[src.resampling])
+        dst.write(out_image)
 
 def process_images(batch, output_bucket, ortho_res, cutline, suffix):
    # Create a temporary directory
@@ -314,8 +304,7 @@ with open(config_file, 'r') as json_file:
     # Load the JSON data into a Python object
     config = json.load(json_file)
 
-gcp_res = str(200)
-#gcp_res = str(config['gcp_res'])
+gcp_res = str(config['gcp_res'])
 gcp_grid_url = f'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/{branch}/gcp_kmls/upland_gcps_{gcp_res}m.kml'
 
 survey_res = config['survey_res']
@@ -354,10 +343,10 @@ parts, means = optimize_voronoi_complexity(flight_projected_src.geometry[0], com
 
 base_poly = gpd.GeoDataFrame(geometry=[parts[array_idx]], crs = 26911)
 buffered_poly = expand_to_gcps(base_poly, gcps_flight, step_sz=30)
-
 manifest_df = pd.read_csv(photo_manifest)
-
-target_photos = filter_manifest(manifest_df, buffered_poly)
+manifest_df['geometry'] = manifest_df.apply(lambda row: Point(row['longitude'], row['latitude']), axis=1)
+manifest_gpd = gpd.GeoDataFrame(manifest_df, geometry='geometry', crs=crs_source).to_crs(crs_target)
+target_photos = gpd.sjoin(manifest_gpd, gpd.GeoDataFrame(geometry=buffered_poly), op='within')
 
 process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, cutline=base_poly ,suffix=array_idx)
 
