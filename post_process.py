@@ -368,7 +368,6 @@ target_photos = gpd.sjoin(manifest_gpd, gpd.GeoDataFrame(geometry=buffered_poly)
 log_progress(f'started_post_processing_{array_idx}.txt', output_bucket)
 process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, cutline=base_poly ,suffix=array_idx)
 
-shutil.rmtree(temp_work)
-
 log_progress(f'stopping_{array_idx}.txt', output_bucket)
+shutil.rmtree(temp_work)
 stop_instance(instance_name)
