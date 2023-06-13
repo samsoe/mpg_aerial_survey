@@ -67,7 +67,7 @@ def load_kml(path):
   return df
 
 def copy_to_gcs(local_file_path, bucket_name):
-    command = ['gsutil', 'cp', local_file_path, 'gs://{}/'.format(bucket_name)]
+    command = ['gsutil', 'cp', '-r', local_file_path, 'gs://{}/'.format(bucket_name)]
     try:
         subprocess.run(command, check=True)
         print('File copied to Google Cloud Storage successfully.')
@@ -109,7 +109,8 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_pa
     images_dir = os.path.join(temp_dir, 'images')
     os.mkdir(images_dir)
 
-    shutil.move(gcp_list_path, temp_dir)
+    if gcp_list_path is not None:
+        shutil.move(gcp_list_path, temp_dir)
 
     for url in batch:
         try:
@@ -364,6 +365,8 @@ output_bucket =  config['output_bucket']
 gcp_editor_url = config['gcp_editor_url']
 log_bucket = output_bucket + '/logs'
 
+
+
 log_progress(f'loaded_config_{array_idx}.txt', log_bucket)
 
 gcp_grid = os.path.basename(gcp_grid_url)
@@ -378,6 +381,8 @@ if gcp_editor_url is not None:
     gcp_list = os.path.basename(gcp_editor_url)
     gcp_list_init = os.path.basename(gcp_list.replace('.txt','_init.txt'))
     download_file(gcp_editor_url, gcp_list_init)
+else:
+    gcp_list = None
 
 log_progress(f'downloaded_supporting_dat_{array_idx}.txt', log_bucket)
 
@@ -404,14 +409,17 @@ log_progress(f'partitioned_area_{array_idx}.txt', log_bucket)
 
 base_poly = gpd.GeoDataFrame(geometry=[parts[array_idx]], crs = 26911)
 buffered_poly = expand_to_gcps(base_poly, gcps_flight, step_sz=30)
-filter_gcp_list(gcp_list_init, buffered_poly.to_crs(crs_source), gcp_list)
-os.remove(gcp_list_init)
 manifest_df = pd.read_csv(photo_manifest)
 manifest_df['geometry'] = manifest_df.apply(lambda row: Point(row['longitude'], row['latitude']), axis=1)
 manifest_gpd = gpd.GeoDataFrame(manifest_df, geometry='geometry', crs=crs_source).to_crs(crs_target)
 target_photos = gpd.sjoin(manifest_gpd, gpd.GeoDataFrame(geometry=buffered_poly), op='within')['url']
 
+if gcp_editor_url is not None:
+    filter_gcp_list(gcp_list_init, buffered_poly.to_crs(crs_source), gcp_list)
+    os.remove(gcp_list_init)
+
 log_progress(f'started_post_processing_{array_idx}.txt', log_bucket)
+
 process_images(batch=target_photos, output_bucket=output_bucket,
                 ortho_res=survey_res, cutline=base_poly ,suffix=array_idx,
                 gcp_list_path=gcp_list)
