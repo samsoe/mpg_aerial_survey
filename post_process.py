@@ -101,13 +101,15 @@ def mask_to_gdf(gdf, raster_path, output_path):
         # Use the original raster's block size and resampling method for better compression
         dst.write(out_image)
 
-def process_images(batch, output_bucket, ortho_res, cutline, suffix):
+def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_path):
    # Create a temporary directory
     temp_dir = tempfile.mkdtemp()
 
     # Create an 'images' subdirectory
     images_dir = os.path.join(temp_dir, 'images')
     os.mkdir(images_dir)
+
+    shutil.move(gcp_list_path, temp_dir)
 
     for url in batch:
         try:
@@ -296,6 +298,42 @@ def log_progress(file, bucket):
         f.write('done')
     copy_to_gcs(file, bucket)
 
+def filter_gcp_list(file_path, polygon_gdf, output_file_path):
+    # Check that the polygon_gdf contains a single geometry
+    if len(polygon_gdf) != 1 or not isinstance(polygon_gdf.geometry.iloc[0], Polygon):
+        raise ValueError('polygon_gdf must contain a single Polygon geometry')
+
+    # Extract the Polygon object
+    polygon = polygon_gdf.geometry.iloc[0]
+
+    # Read header and data
+    with open(file_path, 'r') as file:
+        header = file.readline().strip()
+
+    # Assuming the header contains the EPSG code in a format like "EPSG:XXXX"
+    epsg_code = header.split(":")[-1]
+
+    # Read data skipping the header
+    data = pd.read_csv(file_path, delimiter='\t', skiprows=1, header=None)
+
+    # Create a GeoDataFrame
+    geometry = [Point(xy) for xy in zip(data[0], data[1])]
+    geo_data = gpd.GeoDataFrame(data, geometry=geometry, crs=f'EPSG:{epsg_code}')
+
+    # Filter points within the polygon
+    mask = geo_data.within(polygon)
+    filtered_geo_data = geo_data[mask]
+
+    # Convert back to DataFrame
+    filtered_data = pd.DataFrame(filtered_geo_data)
+    filtered_data.drop(columns='geometry', inplace=True)
+
+    # Write the data to a new file
+    with open(output_file_path, 'w') as file:
+        file.write(header + '\n')
+
+    filtered_data.to_csv(output_file_path, sep='\t', header=False, index=False, mode='a')
+
 temp_work = tempfile.mkdtemp()
 os.chdir(temp_work)
 
@@ -324,8 +362,9 @@ flight_plan_url = config['flight_plan_url']
 photo_manifest_url = config['photo_manifest_url']
 output_bucket =  config['output_bucket']
 gcp_editor_url = config['gcp_editor_url']
+log_bucket = output_bucket + '/logs'
 
-log_progress(f'loaded_config_{array_idx}.txt', output_bucket)
+log_progress(f'loaded_config_{array_idx}.txt', log_bucket)
 
 gcp_grid = os.path.basename(gcp_grid_url)
 flight_plan = os.path.basename(flight_plan_url)
@@ -335,7 +374,12 @@ download_file(gcp_grid_url, gcp_grid)
 download_file(flight_plan_url, flight_plan)
 download_file(photo_manifest_url, photo_manifest)
 
-log_progress(f'downloaded_supporting_dat_{array_idx}.txt', output_bucket)
+if gcp_editor_url is not None:
+    gcp_list = os.path.basename(gcp_editor_url)
+    gcp_list_init = os.path.basename(gcp_list.replace('.txt','_init.txt'))
+    download_file(gcp_editor_url, gcp_list_init)
+
+log_progress(f'downloaded_supporting_dat_{array_idx}.txt', log_bucket)
 
 flight_roi = load_kml(flight_plan)
 gcps = load_kml(gcp_grid)
@@ -356,18 +400,22 @@ gcps_flight = gpd.sjoin(gcps_projected_src, flight_projected_src, how='inner', o
 parts, means = optimize_voronoi_complexity(flight_projected_src.geometry[0], compute_array_sz, 
                                          learning_rate=30, max_iterations=1000, seed=0)
 
-log_progress(f'partitioned_area_{array_idx}.txt', output_bucket)
+log_progress(f'partitioned_area_{array_idx}.txt', log_bucket)
 
 base_poly = gpd.GeoDataFrame(geometry=[parts[array_idx]], crs = 26911)
 buffered_poly = expand_to_gcps(base_poly, gcps_flight, step_sz=30)
+filter_gcp_list(gcp_list_init, buffered_poly.to_crs(crs_source), gcp_list)
+os.remove(gcp_list_init)
 manifest_df = pd.read_csv(photo_manifest)
 manifest_df['geometry'] = manifest_df.apply(lambda row: Point(row['longitude'], row['latitude']), axis=1)
 manifest_gpd = gpd.GeoDataFrame(manifest_df, geometry='geometry', crs=crs_source).to_crs(crs_target)
 target_photos = gpd.sjoin(manifest_gpd, gpd.GeoDataFrame(geometry=buffered_poly), op='within')['url']
 
-log_progress(f'started_post_processing_{array_idx}.txt', output_bucket)
-process_images(batch=target_photos, output_bucket=output_bucket, ortho_res=survey_res, cutline=base_poly ,suffix=array_idx)
+log_progress(f'started_post_processing_{array_idx}.txt', log_bucket)
+process_images(batch=target_photos, output_bucket=output_bucket,
+                ortho_res=survey_res, cutline=base_poly ,suffix=array_idx,
+                gcp_list_path=gcp_list)
 
-log_progress(f'stopping_{array_idx}.txt', output_bucket)
+log_progress(f'stopping_{array_idx}.txt', log_bucket)
 shutil.rmtree(temp_work)
 stop_instance(instance_name)
