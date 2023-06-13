@@ -1,6 +1,6 @@
 #! bin/bash
 
-url=https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/main/surveys/230601_spurgepoly/config_file.json
+url=https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/main/surveys/230612_spurgepoly/config_file.json
 
 for idx in {0..9};
 do
