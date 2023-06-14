@@ -150,11 +150,11 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_pa
 
 def stop_instance(instance_name):
     # Construct the gsutil command to stop the instance
-    gsutil_command = f'gsutil compute instances stop {instance_name}'
+    cmd = f'gcloud compute instances stop {instance_name}'
 
     try:
         # Execute the gsutil command using subprocess
-        subprocess.run(gsutil_command, shell=True, check=True)
+        subprocess.run(cmd, shell=True, check=True)
         print(f'Successfully stopped instance: {instance_name}')
     except subprocess.CalledProcessError as e:
         print(f'Error stopping instance: {instance_name}')
