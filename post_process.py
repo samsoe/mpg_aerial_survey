@@ -126,7 +126,7 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_pa
         "-v", "{}:/datasets/code".format(temp_dir),
         "opendronemap/odm", "--project-path", "/datasets",
         "--orthophoto-resolution", f"{ortho_res}",
-        "--fast-orthophoto",
+        #"--fast-orthophoto",
         "--force-gps"
     ]
 
