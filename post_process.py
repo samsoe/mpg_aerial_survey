@@ -126,6 +126,7 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_pa
         "-v", "{}:/datasets/code".format(temp_dir),
         "opendronemap/odm", "--project-path", "/datasets",
         "--orthophoto-resolution", f"{ortho_res}",
+        "--feature-quality", "ultra",
         #"--fast-orthophoto",
         "--force-gps"
     ]
@@ -364,8 +365,6 @@ photo_manifest_url = config['photo_manifest_url']
 output_bucket =  config['output_bucket']
 gcp_editor_url = config['gcp_editor_url']
 log_bucket = output_bucket + '/logs'
-
-
 
 log_progress(f'loaded_config_{array_idx}.txt', log_bucket)
 
