@@ -46,17 +46,6 @@ def get_metadata(attribute):
     output = result.stdout.strip()
     return output
 
-def expand_to_gcps(focal_poly, gcps, gcp_cutoff=5, step_sz=30, base_buffer=50):
-    focal_poly = focal_poly.buffer(base_buffer)
-    count = sum(gcps.within(focal_poly.geometry.iloc[0]))
-    
-    if count < gcp_cutoff:
-        while count < gcp_cutoff:
-            focal_poly = focal_poly.buffer(step_sz)
-            count = sum(gcps.within(focal_poly.geometry.iloc[0]))
-    
-    return focal_poly
-
 def load_kml(path):
   df = gpd.GeoDataFrame()
 
@@ -127,7 +116,6 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_pa
         "opendronemap/odm", "--project-path", "/datasets",
         "--orthophoto-resolution", f"{ortho_res}",
         "--feature-quality", "ultra",
-        #"--fast-orthophoto",
         "--force-gps"
     ]
 
@@ -149,200 +137,15 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_pa
     # Cleanup: Remove temporary directory
     shutil.rmtree(temp_dir)
 
-def stop_instance(instance_name):
-    # Construct the gsutil command to stop the instance
-    cmd = f'gcloud compute instances stop {instance_name}'
-
-    try:
-        # Execute the gsutil command using subprocess
-        subprocess.run(cmd, shell=True, check=True)
-        print(f'Successfully stopped instance: {instance_name}')
-    except subprocess.CalledProcessError as e:
-        print(f'Error stopping instance: {instance_name}')
-        print(e)
-
-def voronoi_finite_polygons_2d(vor, radius=None):
-    """
-    Reconstruct infinite voronoi regions in a 2D diagram to finite
-    regions.
-
-    Source: https://gist.github.com/pv/8036995
-    """
-
-    if vor.points.shape[1] != 2:
-        raise ValueError("Requires 2D input")
-
-    new_regions = []
-    new_vertices = vor.vertices.tolist()
-
-    center = vor.points.mean(axis=0)
-    if radius is None:
-        radius = vor.points.ptp().max()*2
-
-    # Construct a map containing all ridges for a given point
-    all_ridges = {}
-    for (p1, p2), (v1, v2) in zip(vor.ridge_points, vor.ridge_vertices):
-        all_ridges.setdefault(p1, []).append((p2, v1, v2))
-        all_ridges.setdefault(p2, []).append((p1, v1, v2))
-
-    # Reconstruct infinite regions
-    for p1, region in enumerate(vor.point_region):
-        vertices = vor.regions[region]
-
-        if all(v >= 0 for v in vertices):
-            # finite region
-            new_regions.append(vertices)
-            continue
-
-        # reconstruct a non-finite region
-        ridges = all_ridges[p1]
-        new_region = [v for v in vertices if v >= 0]
-
-        for p2, v1, v2 in ridges:
-            if v2 < 0:
-                v1, v2 = v2, v1
-            if v1 >= 0:
-                # finite ridge: already in the region
-                continue
-
-            # Compute the missing endpoint of an infinite ridge
-
-            t = vor.points[p2] - vor.points[p1] # tangent
-            t /= np.linalg.norm(t)
-            n = np.array([-t[1], t[0]])  # normal
-
-            midpoint = vor.points[[p1, p2]].mean(axis=0)
-            direction = np.sign(np.dot(midpoint - center, n)) * n
-            far_point = vor.vertices[v2] + direction * radius
-
-            new_region.append(len(new_vertices))
-            new_vertices.append(far_point.tolist())
-
-        # sort region counterclockwise
-        vs = np.asarray([new_vertices[v] for v in new_region])
-        c = vs.mean(axis=0)
-        angles = np.arctan2(vs[:,1] - c[1], vs[:,0] - c[0])
-        new_region = np.array(new_region)[np.argsort(angles)]
-
-        # finish
-        new_regions.append(new_region.tolist())
-
-    return new_regions, np.asarray(new_vertices)
-
-def generate_points(poly, num, seed=None):
-    np.random.seed(seed)
-    points = []
-    minx, miny, maxx, maxy = poly.bounds
-    while len(points) < num:
-        random_point = Point(np.random.uniform(minx, maxx), np.random.uniform(miny, maxy))
-        if (random_point.within(poly)):
-            points.append(random_point)
-    return [point.coords[0] for point in points]
-
-def calculate_voronoi_complexity(poly, points):
-    # compute Voronoi tesselation
-    vor = Voronoi(points)
-    
-    # create finite Voronoi polygons
-    regions, vertices = voronoi_finite_polygons_2d(vor)
-    
-    # construct the polygons and intersect with the original one
-    voronoi_polygons = [poly.intersection(Polygon(vertices[region])) for region in regions]
-    
-    # return only the valid ones (completely inside the original polygon)
-    valid_polygons = [p for p in voronoi_polygons if p.is_valid]
-
-    # calculate the perimeter and areas of each valid polygon
-    perimeters = [p.length for p in valid_polygons]
-    areas = [p.area for p in valid_polygons]
-    complexity = [x / y for x, y in zip(perimeters, areas)]
-    
-    return complexity, valid_polygons
-
-def optimize_voronoi_complexity(poly, num, max_iterations=1000, learning_rate=0.1, seed=None):
-    points = generate_points(poly, num, seed)
-    np.random.seed(seed)
-    mns = [] # to store complexity means at each iteration
-    
-    for i in range(max_iterations):
-        complexity, polygons = calculate_voronoi_complexity(poly, points)
-        mn = np.mean(complexity)
-        mns.append(mn) # append current std dev to the list
-
-        # randomly select a point
-        point_idx = np.random.randint(0, len(points))
-        current_point = Point(points[point_idx])
-        
-        # Compute gradients by trying small movements in each direction
-        min_mn = mn
-        min_mn_direction = None
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            new_point = Point(current_point.x + dx * learning_rate, current_point.y + dy * learning_rate)
-            new_points = points.copy()
-            new_points[point_idx] = (new_point.x, new_point.y)
-            
-            new_complexity, _ = calculate_voronoi_complexity(poly, new_points)
-            new_mn = np.mean(new_complexity)
-            
-            if new_mn < min_mn:
-                min_mn = new_mn
-                min_mn_direction = (dx, dy)
-        
-        # If we found a direction that decreases the mean complexity, move the point
-        if min_mn_direction is not None:
-            dx, dy = min_mn_direction
-            points[point_idx] = (current_point.x + dx * learning_rate, current_point.y + dy * learning_rate)
-    
-    return polygons, mns
-
 def log_progress(file, bucket):
     with open(file, 'w') as f:
         f.write('done')
     copy_to_gcs(file, bucket)
 
-def filter_gcp_list(file_path, polygon_gdf, output_file_path):
-    # Check that the polygon_gdf contains a single geometry
-    if len(polygon_gdf) != 1 or not isinstance(polygon_gdf.geometry.iloc[0], Polygon):
-        raise ValueError('polygon_gdf must contain a single Polygon geometry')
-
-    # Extract the Polygon object
-    polygon = polygon_gdf.geometry.iloc[0]
-
-    # Read header and data
-    with open(file_path, 'r') as file:
-        header = file.readline().strip()
-
-    # Assuming the header contains the EPSG code in a format like "EPSG:XXXX"
-    epsg_code = header.split(":")[-1]
-
-    # Read data skipping the header
-    data = pd.read_csv(file_path, delimiter='\t', skiprows=1, header=None)
-
-    # Create a GeoDataFrame
-    geometry = [Point(xy) for xy in zip(data[0], data[1])]
-    geo_data = gpd.GeoDataFrame(data, geometry=geometry, crs=f'EPSG:{epsg_code}')
-
-    # Filter points within the polygon
-    mask = geo_data.within(polygon)
-    filtered_geo_data = geo_data[mask]
-
-    # Convert back to DataFrame
-    filtered_data = pd.DataFrame(filtered_geo_data)
-    filtered_data.drop(columns='geometry', inplace=True)
-
-    # Write the data to a new file
-    with open(output_file_path, 'w') as file:
-        file.write(header + '\n')
-
-    filtered_data.to_csv(output_file_path, sep='\t', header=False, index=False, mode='a')
-
 temp_work = tempfile.mkdtemp()
 os.chdir(temp_work)
 
 branch = 'main'
-# survey = '230601_spurgepoly'
-# array_idx = 0
-# config_url = f'https://raw.githubusercontent.com/samsoe/mpg_aerial_survey/{branch}/surveys/{survey}/config_file.json'
 
 array_idx = int(get_metadata('array_idx')) #dynamic production version
 config_url = get_metadata('config_url')#dynamic production version
@@ -364,6 +167,7 @@ flight_plan_url = config['flight_plan_url']
 photo_manifest_url = config['photo_manifest_url']
 output_bucket =  config['output_bucket']
 gcp_editor_url = config['gcp_editor_url']
+optimization_base_url = config['optimization_base_url']
 log_bucket = output_bucket + '/logs'
 
 log_progress(f'loaded_config_{array_idx}.txt', log_bucket)
@@ -376,10 +180,16 @@ download_file(gcp_grid_url, gcp_grid)
 download_file(flight_plan_url, flight_plan)
 download_file(photo_manifest_url, photo_manifest)
 
+shape_related_filetypes = ['.cpg','.dbf','.shp','.shx']
+
+for f in shape_related_filetypes:
+    focal_file_base = f'job_polys{f}'
+    focal_url = optimization_base_url + focal_file_base
+    download_file(focal_url, focal_file_base)
+
 if gcp_editor_url is not None:
     gcp_list = os.path.basename(gcp_editor_url)
-    gcp_list_init = os.path.basename(gcp_list.replace('.txt','_init.txt'))
-    download_file(gcp_editor_url, gcp_list_init)
+    download_file(gcp_editor_url, gcp_list)
 else:
     gcp_list = None
 
@@ -401,21 +211,12 @@ gcps_projected_src = gcps.to_crs(crs_target)
 
 gcps_flight = gpd.sjoin(gcps_projected_src, flight_projected_src, how='inner', op='within')
 
-parts, means = optimize_voronoi_complexity(flight_projected_src.geometry[0], compute_array_sz, 
-                                         learning_rate=30, max_iterations=1000, seed=0)
-
-log_progress(f'partitioned_area_{array_idx}.txt', log_bucket)
-
-base_poly = gpd.GeoDataFrame(geometry=[parts[array_idx]], crs = 26911)
-buffered_poly = expand_to_gcps(base_poly, gcps_flight, step_sz=30)
+base_poly = gpd.read_file('job_polys.shp').set_crs(32611).to_crs(crs_target).loc[array_idx,'geometry']
+buffered_poly = base_poly.buffer(10)
 manifest_df = pd.read_csv(photo_manifest)
 manifest_df['geometry'] = manifest_df.apply(lambda row: Point(row['longitude'], row['latitude']), axis=1)
 manifest_gpd = gpd.GeoDataFrame(manifest_df, geometry='geometry', crs=crs_source).to_crs(crs_target)
-target_photos = gpd.sjoin(manifest_gpd, gpd.GeoDataFrame(geometry=buffered_poly), op='within')['url']
-
-if gcp_editor_url is not None:
-    filter_gcp_list(gcp_list_init, buffered_poly.to_crs(crs_source), gcp_list)
-    os.remove(gcp_list_init)
+target_photos = gpd.sjoin(manifest_gpd, gpd.GeoDataFrame(geometry=[buffered_poly]), op='within')['url']
 
 log_progress(f'started_post_processing_{array_idx}.txt', log_bucket)
 
@@ -423,6 +224,5 @@ process_images(batch=target_photos, output_bucket=output_bucket,
                 ortho_res=survey_res, cutline=base_poly ,suffix=array_idx,
                 gcp_list_path=gcp_list)
 
-log_progress(f'stopping_{array_idx}.txt', log_bucket)
+log_progress(f'finished_job_{array_idx}.txt', log_bucket)
 shutil.rmtree(temp_work)
-stop_instance(instance_name)
