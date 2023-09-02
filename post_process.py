@@ -120,7 +120,7 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_pa
     ]
 
     process = subprocess.run(docker_command, check=True)
-    
+    print('Finished ODM - pushing to bucket.')
     ortho = os.path.join(temp_dir,'odm_orthophoto/odm_orthophoto.tif')
     report = os.path.join(temp_dir,'odm_report/report.pdf')
     ortho_new = ortho.replace('.tif',f'_{suffix}.tif')
