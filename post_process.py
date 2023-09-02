@@ -126,7 +126,8 @@ def process_images(batch, output_bucket, ortho_res, cutline, suffix, gcp_list_pa
     ortho_new = ortho.replace('.tif',f'_{suffix}.tif')
     report_new = report.replace('.pdf',f'_{suffix}.pdf')
     
-    mask_to_gdf(cutline, ortho, ortho_new)
+    #mask_to_gdf(cutline, ortho, ortho_new)
+    os.rename(ortho, ortho_new)
     os.rename(report, report_new)
 
     focal_files = [ortho_new, report_new]
