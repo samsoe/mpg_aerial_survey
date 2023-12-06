@@ -1,52 +1,63 @@
-# README.md for GeoTIFF Cropping Tool
+# GeoTIFF Cropping Tool
 
-## Overview
-This Python script is designed to handle the cropping of GeoTIFF images based on geographic points defined in a shapefile. It utilizes libraries such as `geopandas`, `rasterio`, and `shapely` to perform geographic operations and manipulate raster data.
+This tool provides a Python-based solution for cropping GeoTIFF files based on a set of points loaded from a shapefile. It uses libraries like `geopandas`, `rasterio`, and `shapely` to handle geographical data and raster operations.
 
 ## Features
-- **Load Shapefile**: Reads a shapefile into a GeoDataFrame.
-- **Bounding Box Creation**: Generates bounding boxes around each point in the GeoDataFrame.
-- **Crop GeoTIFF**: Crops a GeoTIFF image based on specified bounding boxes.
-- **Save Cropped Images**: Saves each cropped portion of the GeoTIFF as a separate file.
 
-## Dependencies
-- geopandas
-- rasterio
-- shapely
-- numpy
-- os
+- **Load Shapefile**: Converts a shapefile into a GeoDataFrame.
+- **Create Bounding Boxes**: Generates bounding boxes around each point in the GeoDataFrame.
+- **Crop and Save GeoTIFF**: Crops the GeoTIFF based on these bounding boxes and saves each cropped image with DEFLATE compression.
 
-## Installation
-Ensure you have the required dependencies installed. You can install them using pip:
-```bash
-pip install geopandas rasterio shapely numpy
-```
+## Requirements
+
+- `geopandas`
+- `rasterio`
+- `shapely`
+- `numpy`
+- `os`
 
 ## Usage
-1. **Set File Paths**: Update `shapefile_path`, `geotiff_path`, and `output_folder` with the appropriate file locations.
 
-2. **Run Script**: Execute the script to crop the GeoTIFF based on points in the shapefile and save the cropped images.
+1. **Load Shapefile**: Provide the path to your shapefile.
+   ```python
+   shapefile_path = "./points.shp"
+   points_gdf = load_shapefile(shapefile_path)
+   ```
 
-```python
-points_gdf = load_shapefile(shapefile_path)
-bounding_boxes = get_bounding_boxes(points_gdf)
-cropped_images = crop_geotiff(geotiff_path, bounding_boxes)
-save_cropped_images(cropped_images, output_folder, geotiff_path)
-```
+2. **Create Bounding Boxes**: Specify the side length for the bounding boxes around each point.
+   ```python
+   bounding_boxes = get_bounding_boxes(points_gdf)
+   ```
+
+3. **Crop and Save GeoTIFF**: Specify the path to your GeoTIFF, output folder, and other optional parameters.
+   ```python
+   geotiff_path = "./orthomosaic.tif"
+   output_folder = "./output/"
+   crop_and_save_geotiff(geotiff_path, bounding_boxes, output_folder)
+   ```
 
 ## Functions
+
 ### `load_shapefile(file_path)`
 Loads a shapefile into a GeoDataFrame.
 
-### `get_bounding_boxes(gdf, buffer=1)`
+### `get_bounding_boxes(gdf, side_len=1)`
 Creates bounding boxes around each point in the GeoDataFrame.
 
-### `crop_geotiff(geotiff_path, bounding_boxes)`
-Crops the GeoTIFF based on the bounding boxes.
+### `crop_and_save_geotiff(geotiff_path, bounding_boxes, output_folder, write_images=True, prefix="cropped", compression_level=6)`
+Crops the GeoTIFF based on the bounding boxes and saves each cropped image. It applies DEFLATE compression with the specified level.
 
-### `save_cropped_images(cropped_images, output_folder, geotiff_path, prefix="cropped")`
-Saves the cropped images to a specified folder.
+## Example
 
-## Notes
-- Ensure the coordinate reference system (CRS) of the shapefile and the GeoTIFF are compatible.
-- The script assumes a buffer of 1 meter around each point for creating bounding boxes, which can be adjusted.
+```python
+shapefile_path = "./points.shp"
+geotiff_path = "./orthomosaic.tif"
+output_folder = "./output/"
+
+points_gdf = load_shapefile(shapefile_path)
+bounding_boxes = get_bounding_boxes(points_gdf)
+crop_and_save_geotiff(geotiff_path, bounding_boxes, output_folder)
+```
+
+This script will load points from `points.shp`, create bounding boxes around each point, and then crop `orthomosaic.tif` based on these bounding boxes, saving the results in the `./output/` directory.
+
