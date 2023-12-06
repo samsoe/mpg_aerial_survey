@@ -14,14 +14,17 @@ def load_shapefile(file_path):
     return gpd.read_file(file_path)
 
 
-def get_bounding_boxes(gdf, buffer=1):
+def get_bounding_boxes(gdf, side_len=1):
     """
-    Creates bounding boxes (1m square) around each point in the GeoDataFrame.
+    Creates bounding boxes around each point in the GeoDataFrame.
     """
     bounding_boxes = []
     for point in gdf.geometry:
         bbox = box(
-            point.x - buffer, point.y - buffer, point.x + buffer, point.y + buffer
+            point.x - side_len,
+            point.y - side_len,
+            point.x + side_len,
+            point.y + side_len,
         )
         bounding_boxes.append(bbox)
     return gpd.GeoDataFrame(geometry=bounding_boxes, crs=gdf.crs)
