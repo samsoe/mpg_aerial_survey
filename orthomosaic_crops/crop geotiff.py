@@ -16,7 +16,7 @@ def load_shapefile(file_path):
 
 def get_bounding_boxes(gdf, side_len=1):
     """
-    Creates bounding boxes around each point in the GeoDataFrame.
+    Creates bounding boxes (2m square) around each point in the GeoDataFrame.
     """
     bounding_boxes = []
     for point in gdf.geometry:
@@ -31,14 +31,20 @@ def get_bounding_boxes(gdf, side_len=1):
 
 
 def crop_and_save_geotiff(
-    geotiff_path, bounding_boxes, output_folder, write_images=True, prefix="cropped"
+    geotiff_path,
+    bounding_boxes,
+    output_folder,
+    write_images=True,
+    prefix="cropped",
+    compression_level=6,
 ):
     """
-    Crops the GeoTIFF based on the bounding boxes.
-    If write_images is True, saves each cropped image immediately.
+    Crops the GeoTIFF based on the bounding boxes and saves each cropped image immediately.
+    Applies DEFLATE compression with a specified compression level.
     """
     if write_images and not os.path.exists(output_folder):
         os.makedirs(output_folder)
+
     with rasterio.open(geotiff_path) as src:
         meta = src.meta.copy()
 
@@ -49,15 +55,17 @@ def crop_and_save_geotiff(
             out_image, out_transform = mask(
                 src, [bbox_transformed.geometry.iloc[0]], crop=True
             )
-
             meta.update(
                 {
                     "driver": "GTiff",
                     "height": out_image.shape[1],
                     "width": out_image.shape[2],
                     "transform": out_transform,
+                    "compress": "DEFLATE",
+                    "zlevel": compression_level,
                 }
             )
+
             if write_images:
                 output_path = os.path.join(output_folder, f"{prefix}_{i}.tif")
                 with rasterio.open(output_path, "w", **meta) as dest:
