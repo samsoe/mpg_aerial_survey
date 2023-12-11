@@ -22,13 +22,15 @@ def get_bounding_boxes(gdf, side_len_m=1):
     gdf (GeoDataFrame): A GeoDataFrame with geometry in a coordinate reference system (CRS) that uses meters as units.
     side_len_m (float): The length of each side of the bounding box in meters.
     """
+
+    half_side = side_len_m / 2  # Calculate half the side length
     bounding_boxes = []
     for point in gdf.geometry:
         bbox = box(
-            point.x - side_len_m,
-            point.y - side_len_m,
-            point.x + side_len_m,
-            point.y + side_len_m,
+            point.x - half_side,
+            point.y - half_side,
+            point.x + half_side,
+            point.y + half_side,
         )
         bounding_boxes.append(bbox)
     return gpd.GeoDataFrame(geometry=bounding_boxes, crs=gdf.crs)
@@ -81,5 +83,5 @@ geotiff_path = "./orthomosaic.tif"
 output_folder = "./folder/"
 
 points_gdf = load_shapefile(shapefile_path)
-bounding_boxes = get_bounding_boxes(points_gdf, side_len_m=2)
+bounding_boxes = get_bounding_boxes(points_gdf)
 crop_and_save_geotiff(geotiff_path, bounding_boxes, output_folder)
